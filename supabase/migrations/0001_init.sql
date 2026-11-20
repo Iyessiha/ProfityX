@@ -269,6 +269,30 @@ grant execute on function public.spend_credits(text, text) to authenticated;
 grant execute on function public.grant_plan_payment(text, text, uuid, text, numeric, text) to service_role;
 
 -- ---------------------------------------------------------------------------
+-- Rattrapage : comptes créés avant l'application de cette migration
+-- (sur une base neuve, auth.users est vide et ce bloc ne fait rien)
+-- ---------------------------------------------------------------------------
+
+insert into public.profiles (id, email)
+select u.id, u.email from auth.users u
+on conflict (id) do nothing;
+
+do $$
+declare
+  r record;
+  v_trial integer;
+begin
+  select credits into v_trial from public.plans where code = 'trial';
+  for r in
+    select u.id from auth.users u
+    where not exists (select 1 from public.credit_ledger l where l.user_id = u.id and l.kind = 'trial')
+  loop
+    perform private.apply_credit_change(r.id, v_trial, 'trial', 'trial', 'backfill');
+  end loop;
+end
+$$;
+
+-- ---------------------------------------------------------------------------
 -- RLS
 -- ---------------------------------------------------------------------------
 
